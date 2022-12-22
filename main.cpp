@@ -1,4 +1,4 @@
-#include <array>
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <iostream>
@@ -9,7 +9,7 @@ namespace sudoku {
 struct Cell {
   static constexpr uint16_t kAllPossibleBmp = (1U << 9) - 1;
 
-  Cell() = default;
+  Cell() noexcept = default;
 
   explicit Cell(char c) {
     if (c == '.') {
@@ -61,57 +61,43 @@ struct Cell {
     return ret;
   }
 
+  bool upgradeValidity(uint16_t& knownBmp, uint16_t& globalBmp) const {
+    if (bmp == 0) {
+      return false;
+    }
+    if (isKnown()) {
+      if (knownBmp & bmp) {
+        return false;
+      }
+      knownBmp |= bmp;
+    }
+    globalBmp |= bmp;
+    return true;
+  }
+
   uint16_t bmp{};
 };
 
 /// 3x3
 struct SubGrid {
-  void init(int row, int col, char c) { cellAt(row, col) = Cell(c); }
-
-  bool isSolved() {
-    if (_isSolved) {
-      return true;
-    }
-    for (int row = 0; row < 3; ++row) {
-      for (int col = 0; col < 3; ++col) {
-        if (!cellAt(row, col).isKnown()) {
-          return false;
-        }
-      }
-    }
-    _isSolved = true;
-    return true;
+  bool isSolved() const {
+    return std::ranges::all_of(cells, [](Cell c) { return c.isKnown(); });
   }
 
   bool isValid() const {
-    uint16_t bmp = 0, knownBmp = 0;
-    for (int row = 0; row < 3; ++row) {
-      for (int col = 0; col < 3; ++col) {
-        Cell cell = cellAt(row, col);
-        uint16_t bmpCell = cell.bmp;
-        if (cell.isKnown()) {
-          if (knownBmp & bmpCell) {
-            return false;
-          }
-          knownBmp |= bmpCell;
-        }
-        if (bmpCell == 0) {
-          return false;
-        }
-        bmp |= bmpCell;
-      }
-    }
-    return bmp == Cell::kAllPossibleBmp;
+    uint16_t globalBmp = 0, knownBmp = 0;
+    return std::ranges::all_of(cells,
+                               [&](Cell c) {
+                                 return c.upgradeValidity(knownBmp, globalBmp);
+                               }) &&
+           globalBmp == Cell::kAllPossibleBmp;
   }
 
   uint16_t getBmpKnownValues() const {
     uint16_t ret = 0;
-    for (int row = 0; row < 3; ++row) {
-      for (int col = 0; col < 3; ++col) {
-        Cell cell = cellAt(row, col);
-        if (cell.isKnown()) {
-          ret |= cell.bmp;
-        }
+    for (Cell cell : cells) {
+      if (cell.isKnown()) {
+        ret |= cell.bmp;
       }
     }
     return ret;
@@ -121,38 +107,19 @@ struct SubGrid {
   Cell cellAt(int row, int col) const { return cells[col * 3 + row]; }
 
   Cell cells[9]{};
-  bool _isSolved{};
 };
 
 struct Grid {
-  using CellLine = std::array<Cell*, 9>;
-
   explicit Grid(const std::vector<std::vector<char>>& board) {
     int row = 0;
-    for (const std::vector<char>& line : board) {
+    for (const auto& line : board) {
       int col = 0;
       for (char c : line) {
-        subGridAt(row / 3, col / 3).init(row % 3, col % 3, c);
+        cellAt(row, col) = Cell(c);
         ++col;
       }
       ++row;
     }
-  }
-
-  CellLine row(int row) {
-    CellLine ret;
-    for (int col = 0; col < 9; ++col) {
-      ret[col] = &cellAt(row, col);
-    }
-    return ret;
-  }
-
-  CellLine col(int col) {
-    CellLine ret;
-    for (int row = 0; row < 9; ++row) {
-      ret[row] = &cellAt(row, col);
-    }
-    return ret;
   }
 
   uint16_t rowKnownBmp(int row) const {
@@ -177,61 +144,29 @@ struct Grid {
     return ret;
   }
 
-  bool isRowValid(int row) const {
-    uint16_t bmp = 0, knownBmp = 0;
-    for (int col = 0; col < 9; ++col) {
-      Cell cell = cellAt(row, col);
-      uint16_t bmpCell = cell.bmp;
-      if (cell.isKnown()) {
-        if (knownBmp & bmpCell) {
-          return false;
-        }
-        knownBmp |= bmpCell;
-      }
-      if (bmpCell == 0) {
+  bool isRowAndColValid(int subPos) const {
+    uint16_t globalRowBmp = 0, knownRowBmp = 0;
+    uint16_t globalColBmp = 0, knownColBmp = 0;
+    for (int otherPos = 0; otherPos < 9; ++otherPos) {
+      if (!cellAt(subPos, otherPos)
+               .upgradeValidity(knownRowBmp, globalRowBmp) ||
+          !cellAt(otherPos, subPos)
+               .upgradeValidity(knownColBmp, globalColBmp)) {
         return false;
       }
-      bmp |= bmpCell;
     }
-    return bmp == Cell::kAllPossibleBmp;
+    return globalRowBmp == Cell::kAllPossibleBmp &&
+           globalColBmp == Cell::kAllPossibleBmp;
   }
 
-  bool isColValid(int col) const {
-    uint16_t bmp = 0, knownBmp = 0;
-    for (int row = 0; row < 9; ++row) {
-      Cell cell = cellAt(row, col);
-      uint16_t bmpCell = cell.bmp;
-      if (cell.isKnown()) {
-        if (knownBmp & bmpCell) {
-          return false;
-        }
-        knownBmp |= bmpCell;
-      }
-      if (bmpCell == 0) {
-        return false;
-      }
-      bmp |= bmpCell;
-    }
-    return bmp == Cell::kAllPossibleBmp;
-  }
-
-  bool isSolved() {
-    for (int subGrid = 0; subGrid < 9; ++subGrid) {
-      if (!subGrids[subGrid].isSolved()) {
-        return false;
-      }
-    }
-    return true;
+  bool isSolved() const {
+    return std::ranges::all_of(
+        subGrids, [](const SubGrid& subGrid) { return subGrid.isSolved(); });
   }
 
   bool isValid() const {
-    for (int subGrid = 0; subGrid < 9; ++subGrid) {
-      if (!subGrids[subGrid].isValid()) {
-        return false;
-      }
-    }
-    for (int rowOrCol = 0; rowOrCol < 9; ++rowOrCol) {
-      if (!isRowValid(rowOrCol) || !isColValid(rowOrCol)) {
+    for (int subPos = 0; subPos < 9; ++subPos) {
+      if (!subGrids[subPos].isValid() || !isRowAndColValid(subPos)) {
         return false;
       }
     }
@@ -298,6 +233,7 @@ struct Grid {
   GridVector solve(int maxNbSolutions = -1) const {
     GridVector grids(1, *this);
     GridVector solutions;
+    int invalidSolutions = 0;
     do {
       Grid grid = std::move(grids.back());
       grids.pop_back();
@@ -310,21 +246,12 @@ struct Grid {
         continue;
       }
       if (!grid.isValid()) {
+        ++invalidSolutions;
         continue;
       }
       grid.generate(grids);
     } while (!grids.empty());
     return solutions;
-  }
-
-  void setCharVector(std::vector<std::vector<char>>& board) const {
-    int row = 0;
-    for (std::vector<char>& line : board) {
-      for (int col = 0; col < 9; ++col) {
-        line[col] = cellAt(row, col).convertToChar();
-      }
-      ++row;
-    }
   }
 
   Cell& cellAt(int row, int col) {
@@ -340,15 +267,15 @@ struct Grid {
   friend std::ostream& operator<<(std::ostream& o, const Grid& grid) {
     static constexpr const char* const sep = "-------------";
     o << sep << std::endl;
-    for (int r = 0; r < 9; ++r) {
-      for (int c = 0; c < 9; ++c) {
-        if (c % 3 == 0) {
+    for (int row = 0; row < 9; ++row) {
+      for (int col = 0; col < 9; ++col) {
+        if (col % 3 == 0) {
           o << '|';
         }
-        o << grid.subGridAt(r / 3, c / 3).cellAt(r % 3, c % 3).convertToChar();
+        o << grid.cellAt(row, col).convertToChar();
       }
       o << '|' << std::endl;
-      if (r % 3 == 2) {
+      if (row % 3 == 2) {
         o << sep << std::endl;
       }
     }
