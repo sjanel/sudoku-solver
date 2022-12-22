@@ -42,6 +42,10 @@ struct Cell {
   }
 
   std::pair<Cell, Cell> split() const {
+    // Duplicate one unknown cell into 2 distinct sets.
+    // For instance, if we have an unknown cell with possible values {1,4,6},
+    // We duplicate one instance of the grid with {1,4}, another instance with
+    // {6}
     auto lhsNbBits = (nbPossibleValues() + 1) / 2;
     std::pair<Cell, Cell> ret;
     int nLhs = 0;
@@ -265,10 +269,6 @@ struct Grid {
   using GridVector = std::vector<Grid>;
 
   std::pair<int8_t, int8_t> getCellWithLowestConstraints() const {
-    // Duplicate one unknown cell into 2 distinct sets.
-    // For instance, if we have an unknown cell with possible values {1,4,6},
-    // We duplicate one instance of the grid with {1,4}, another instance with
-    // {6}
     std::pair<int8_t, int8_t> ret;
     int lowestNbPossibilities = 10;
     for (int8_t r = 0; r < 9; ++r) {
@@ -287,10 +287,6 @@ struct Grid {
   }
 
   void generate(GridVector& gridVector) const {
-    // Duplicate one unknown cell into 2 distinct sets.
-    // For instance, if we have an unknown cell with possible values {1,4,6},
-    // We duplicate one instance of the grid with {1,4}, another instance with
-    // {6}
     auto [row, col] = getCellWithLowestConstraints();
     // There should be at least one unknown cell at this point
     auto [lhsCell, rhsCell] = cellAt(row, col).split();
@@ -364,6 +360,7 @@ struct Grid {
 }  // namespace sudoku
 
 int main() {
+  // Define a grid below. '.' marks an unknown point.
   std::vector<std::vector<char>> board = {
       {'.', '.', '.', '7', '.', '4', '.', '.', '5'},
       {'.', '2', '.', '.', '1', '.', '.', '.', '.'},
@@ -376,11 +373,16 @@ int main() {
       {'.', '.', '.', '4', '.', '7', '.', '.', '.'}};
 
   sudoku::Grid grid(board);
+
   std::cout << "Input: " << std::endl << grid << std::endl;
+
   auto solutions = grid.solve();
+
   static constexpr int kMaxNbSolutionsToPrint = 3;
+
   std::cout << solutions.size() << " solutions, printing the first "
             << kMaxNbSolutionsToPrint << std::endl;
+
   int nbSolutionsPrinted = 0;
   for (const auto& sol : solutions) {
     std::cout << sol << std::endl;
